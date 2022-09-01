@@ -1,0 +1,244 @@
+model{
+
+#-------------------------------------------------------------------------------
+# 1) ARU Distance - Peak Power linear relationship
+#-------------------------------------------------------------------------------
+
+ ### Priors ###
+  	
+	a0 ~ dnorm(76.45, 0.076)	  #intercept 
+   	a1 ~ dnorm(-0.147, 1000)T(,0)     #growth rate
+	tau <- pow(pp_var, -2) 	          #inverse of variance
+	pp_var ~ dexp(1/5)     
+	ARU_sigma_test ~ dnorm(190,0.01)  #Based on previous research - COULD CHANGE
+	
+ ### Likelihood ###
+
+    	 # Estimating relationship between peak-power and distance from previous field work
+	 for(p in 1:Ntest){
+  			pp_test[p] ~ dnorm(Epower_test[p], tau)   	
+   			Epower_test[p] <- a0 + a1*dist_test[p]
+   			detprob_test[p] <- exp(-dist_test[p]^2/(2*ARU_sigma_test^2))
+  			detected[p] ~ dbern(detprob_test[p])}#p
+
+
+#-----------------------------------------------------------------------------------------------------
+# 2) Priors
+#-----------------------------------------------------------------------------------------------------
+
+	######## Abundance ######## 
+
+		mean_alpha0 ~ dnorm(0, 0.001)
+		sd_alpha0 ~ dunif(0,10)
+		prec_alpha0 <- 1/(sd_alpha0^2)
+	   	for(t in 1:nyrs){  
+    			for(s in 1:nstates){
+        			alpha0[t,s] ~ dnorm(mean_alpha0, prec_alpha0)}}
+
+
+           ## Covariates - linear and quadratic effects ##
+
+		#1) effect of management (planned or applied) - manstat
+			alpha1 ~ dnorm(0, 0.001)
+		#2) effect of "large" or not (large or not) - large
+			alpha2 ~ dnorm(0, 0.001)
+		#3) habitat 1 - forest 
+			alpha3 ~ dnorm(0, 0.001)
+			alpha3q ~ dnorm(0, 0.001)
+		#4) habitat 2 - herb 
+			alpha4 ~ dnorm(0, 0.001)
+			alpha4q ~ dnorm(0, 0.001)
+		#5) habitat 3 - agri 
+    			alpha5 ~ dnorm(0, 0.001)
+			alpha5q ~ dnorm(0, 0.001)
+		#6) Fire - fire frequency
+    			alpha6 ~ dnorm(0, 0.001)
+			alpha6q ~ dnorm(0, 0.001)
+
+
+	   ## Scales of Covariates ##
+
+ 	 	for (c in 1:(ncovariates_abundance-2)){
+			# 15 scales for linear covariates
+			abundance_scale1[c] ~ dcat(c(1/15, 1/15, 1/15, 1/15, 1/15,
+						    1/15, 1/15, 1/15, 1/15, 1/15,
+						    1/15, 1/15, 1/15, 1/15, 1/15))
+
+			# 15 scales for quadratic covariates
+			abundance_scale2[c] ~ dcat(c(1/15, 1/15, 1/15, 1/15, 1/15,
+						    1/15, 1/15, 1/15, 1/15, 1/15,
+						    1/15, 1/15, 1/15, 1/15, 1/15))
+		   }#c  
+ 	 	
+
+
+	######## Detection ########
+		
+	   ## PC Detection ##
+		mean_beta0 ~ dnorm(0, 0.001)
+		sd_beta0 ~ dunif(0,10)
+		prec_beta0 <- 1/(sd_beta0^2)
+	        # beta0 (for each year and state) is exp(lambda) intercept for detection probability	
+	   	for(t in 1:nyrs){
+    			for(s in 1:nstates){
+    				beta0_PC[t,s] ~ dnorm(mean_beta0,prec_beta0)}}
+
+	   ## ARU Detection ##
+		mean_beta0_ARU ~ dnorm(0, 0.001)
+		sd_beta0_ARU ~ dunif(0,10)
+		prec_beta0_ARU <- 1/(sd_beta0_ARU^2)
+	        # beta0 (for each year and state) is exp(int) intercept for detection probability	
+	   	for(t in 1:nyrs){
+    			for(s in 1:nstates){
+    				beta0_ARU[t,s] ~ dnorm(mean_beta0_ARU,prec_beta0_ARU)
+ 				log(ARU_sigma[t,s]) <- beta0_ARU[t,s]}}
+				
+
+
+	######## Availability #########
+
+	    ## PC Availability ##		
+		mean_phi0 ~ dnorm(0, 0.001)
+		sd_phi0 ~ dunif(0,10)
+		prec_phi0 <- 1/(sd_phi0^2)
+	 	# phi0 (for each year and state) is intercept for linear model of availability	
+	   	for(t in 1:nyrs){
+  			for(s in 1:nstates){
+    			 	phi0[t,s] ~ dnorm(mean_phi0,prec_phi0)}}
+		phi1 ~ dnorm(0,0.001) # coefficient of day in availiabity linear model
+		phi2 ~ dnorm(0,0.001) # coefficient of day^2 in availiabity linear model
+
+
+   	    ## ARU Availability ##		
+		mean_phi0_ARU ~ dnorm(0, 0.001)
+		sd_phi0_ARU ~ dunif(0,10)
+		prec_phi0_ARU <- 1/(sd_phi0_ARU^2)
+	 	#phi0 (for each year and state) is intercept for linear model of availability	
+	   	for(t in 1:nyrs){
+  			for(s in 1:nstates){
+    			 	phi0_ARU[t,s] ~ dnorm(mean_phi0_ARU,prec_phi0_ARU)}}
+
+
+
+	######## ARU Cue Rate #########
+
+		  CallRate ~ dnorm(42.97, 0.5)
+		  fp ~ dnorm(0.165, 1000)T(0,)   # Need to investigate this more
+
+	
+
+#-----------------------------------------------------------------------------------------------------
+# 3) Ecological process models
+#-----------------------------------------------------------------------------------------------------
+
+	
+	for(i in 1:nsites){
+
+		 	Nbirds[i] ~ dpois(lambda[i])
+			
+			lambda[i] <- exp(alpha0[yr[i],state[i]] + alpha1*manstat[i] + alpha2*large[i] + 
+				alpha3 * abundance_covariates[i,1,abundance_scale1[1]] +
+				alpha3q * pow(abundance_covariates[i,1,abundance_scale2[1]],2) +
+				alpha4 * abundance_covariates[i,2,abundance_scale1[2]] +
+				alpha4q * pow(abundance_covariates[i,2,abundance_scale2[2]],2) +
+				alpha5 * abundance_covariates[i,3,abundance_scale1[3]] +
+				alpha5q * pow(abundance_covariates[i,3,abundance_scale2[3]],2) +
+				alpha6 * abundance_covariates[i,4,abundance_scale1[4]] +
+				alpha6q * pow(abundance_covariates[i,4,abundance_scale2[4]],2))	
+
+			ENcallsFP[i] <- (Nbirds[i]/10)*CallRate 	# Expected number of calls per site
+			#ENcalls[i] ~ dbin(1-fp, ENcallsFP[i])		# Expected number of calls after fp taken into account
+			psi[i] <- ENcallsFP[i]/M                        # Data augmentation parameter
+
+
+#-----------------------------------------------------------------------------------------------------
+# 4) Observational process models - Availability
+#-----------------------------------------------------------------------------------------------------  
+ 		
+	## ARU Availability with no time removal (birds not mentally removed) ##
+
+	   for(r in 1:rd[i]){
+
+	   	logit(paPrime_ARU[i,r]) <- phi0_ARU[yr[i],state[i]] + phi1*obs_date_ARU[i,r] + phi2*obs_date_ARU[i,r]*obs_date_ARU[i,r]
+
+    	      }#r
+
+
+	## Availability Point Counts with time removal ##
+
+	  for(v in 1:vh[i]){
+
+	  	logit(paPrime[i,v]) <- phi0[yr[i],state[i]] + phi1*obs_date[i,v] + phi2*obs_date[i,v]*obs_date[i,v]
+
+       	  	for(b in 1:ntbins){
+      	  		# Probability of being available in each time bin
+      	  		# pi_pa in time bin >1 conditional on not being detected before
+      	  		pi_pa[i,b,v] <- paPrime[i,v]*pow(1-paPrime[i,v], (b-1))
+      	  		pi_pa_normalized[i,b,v] <- pi_pa[i,b,v] / pa[i,v]}
+            	
+		# Probability ever available
+    	  	pa[i,v] <- sum(pi_pa[i,1:ntbins,v])
+
+
+
+#-----------------------------------------------------------------------------------------------------
+# 5) Observational process models - Detection
+#-----------------------------------------------------------------------------------------------------  
+  
+    	## Point Count Detection model ##
+
+    	        # Conditional probability of detection, given available
+    		   pMarg[i,v] <- pd[yr[i],state[i]]*pa[i,v]
+    		# Distance data - what bin were the detected individuals in?
+    		   ydb[i,1:nB,v] ~ dmulti(pd_bins_adj[1:nB,yr[i],state[i]], y[i,v])
+        	# Time data - when were detections mentally removed?
+   		   ytb[i,1:ntbins,v] ~ dmulti(pi_pa_normalized[i,1:ntbins,v], y[i,v])
+    		# Number of observed individuals
+    		   y[i,v] ~ dbin(pMarg[i,v], Nbirds[i])
+
+	       }#v
+	    }#i
+
+
+	   for(t in 1:nyrs){
+  	     for(s in 1:nstates){
+
+    	   	log(sigma[t,s]) <- beta0_PC[t,s]
+       	      	for(b in 1:nB){
+           		pd_bins[b,t,s] <- (sigma[t,s]^2*(1-exp(-db[b+1]^2/(2*sigma[t,s]^2)))-sigma[t,s]^2*(1-exp(-db[b]^2/
+	   		(2*sigma[t,s]^2))))*2*3.1416/(point.area*pix[b])
+            		pd_bins_adj[b,t,s] <- pd_bins[b,t,s]*pix[b]} #b
+    	   	pd[t,s] <- sum(pd_bins_adj[1:nB,t,s]) # Overall detection in sampling area (constant among sites)
+
+		     }#s
+         	 }#t
+
+
+	
+	## ARU Detection model ##	     	      
+ 
+	    for(i in 1:nsites){
+		
+	  	for(j in 1:M){		
+
+			dist[j,i] ~ dunif(0, aru_dmax)                                                # Random distance between ARU and max distance
+			negLogLike[j,i] = -log(2*dist[j,i] / aru_dmax^2)                              # Zeros trick to account for area increasing
+      			zeros[j,i] ~ dpois(negLogLike[j,i])                                           # Zeros trick to account for area increasing
+			Epower[j,i] <- a0 + a1*dist[j,i]                            		      # Estimate call power from actual powers
+			pp_real[j,i] ~ dnorm(Epower[j,i], tau)                                        # power is data for 1:N_Obs, and NA for the rest
+	        	p_ind[j,i] <- exp(-(dist[j,i]*dist[j,i])/(2*ARU_sigma[yr[i],state[i]]^2))     # Half normal distribution + estimated distances
+			
+			
+		   for(r in 1:rd[i]){
+
+			z[j,i,r] ~ dbern(psi[i]) 			
+		    	mu[j,i,r] <- z[j,i,r] * paPrime_ARU[i,r] * p_ind[j,i]                          # Detection probability of success
+		    	y_ARU[j,i,r] ~ dbern(mu[j,i,r])                              	      	        # Detection process 
+
+
+		      }#r	       
+		  }#j				
+  	      }#i
+
+
+}
